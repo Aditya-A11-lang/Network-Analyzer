@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Data / models (keep folders, ignore contents)
+data/*.db
+data/*.pcap
+data/*.pcapng
+!data/.gitkeep
+models/*.joblib
+!models/.gitkeep
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.log
