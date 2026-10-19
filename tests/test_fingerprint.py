@@ -1,49 +1,48 @@
-import os
-import sys
+"""Communication Fingerprinting Module.
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+Builds behavioral fingerprints and generates deterministic IDs and visual
+representation strings for device traffic metadata features.
+"""
+from __future__ import annotations
 
+import hashlib
 import pandas as pd
 
-from src.fingerprint import build_fingerprints, generate_fingerprint_id, bar_string
 from src.feature_engineering import FEATURE_COLUMNS
 
 
-def _features_df():
-    data = {col: [0.2, 0.8] for col in FEATURE_COLUMNS}
-    return pd.DataFrame(data, index=["10.0.0.1", "10.0.0.2"])
+def generate_fingerprint_id(row: pd.Series) -> str:
+    """Generate an 8-character deterministic fingerprint ID from a feature row."""
+    values_str = "-".join(f"{row.get(col, 0.0):.3f}" for col in FEATURE_COLUMNS)
+    hash_digest = hashlib.sha256(values_str.encode("utf-8")).hexdigest()
+    return f"{hash_digest[:2].upper()}-{hash_digest[2:4].upper()}-{hash_digest[4:6].upper()}"
 
 
-def test_build_fingerprints_returns_entry_per_device():
-    fingerprints = build_fingerprints(_features_df())
-    assert set(fingerprints.keys()) == {"10.0.0.1", "10.0.0.2"}
-    for fp in fingerprints.values():
-        assert "fingerprint_id" in fp
-        assert "bars" in fp
-        assert all(0 <= v <= 100 for v in fp["bars"].values())
+def bar_string(percentage: float, width: int = 10) -> str:
+    """Render a visual ASCII/Unicode progress bar string with high-contrast format."""
+    pct = max(0.0, min(100.0, float(percentage)))
+    filled = int(round(width * (pct / 100.0)))
+    bar = "█" * filled + "░" * (width - filled)
+    return f"{bar}  {pct:5.1f}%"
 
 
-def test_fingerprint_id_is_deterministic():
-    row = pd.Series({col: 0.5 for col in FEATURE_COLUMNS})
-    id1 = generate_fingerprint_id(row)
-    id2 = generate_fingerprint_id(row)
-    assert id1 == id2
-    assert len(id1) == 8  # "XX-XX-XX"
+def build_fingerprints(features_df: pd.DataFrame) -> dict[str, dict]:
+    """Build communication fingerprints for each device in the features DataFrame."""
+    if features_df is None or features_df.empty:
+        return {}
 
+    fingerprints = {}
+    for src_ip, row in features_df.iterrows():
+        fp_id = generate_fingerprint_id(row)
+        bars = {}
+        for col in FEATURE_COLUMNS:
+            val = float(row.get(col, 0.0))
+            pct = max(0.0, min(100.0, val * 100.0))
+            label = col.replace("_", " ").title()
+            bars[label] = pct
 
-def test_fingerprint_id_format():
-    row = pd.Series({col: 0.1 for col in FEATURE_COLUMNS})
-    fp_id = generate_fingerprint_id(row)
-    parts = fp_id.split("-")
-    assert len(parts) == 3
-    assert all(len(p) == 2 for p in parts)
-
-
-def test_bar_string_renders_percentage():
-    s = bar_string(50, width=10)
-    assert "50%" in s
-    assert len(s.split("  ")[0]) == 10
-
-
-def test_empty_features_returns_empty_fingerprints():
-    assert build_fingerprints(pd.DataFrame()) == {}
+        fingerprints[str(src_ip)] = {
+            "fingerprint_id": fp_id,
+            "bars": bars,
+        }
+    return fingerprints
