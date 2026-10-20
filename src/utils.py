@@ -20,6 +20,7 @@ FRIENDLY_MESSAGES = {
     "insufficient_baseline": "Unable to establish a baseline from the supplied traffic.",
     "capture_permission": "Live capture requires appropriate permissions on this machine.",
     "no_interface": "No usable network interface was found for live capture.",
+    "packet_limit": "The capture reached the maximum packet limit. Captured packets are available to analyze.",
     "model_unavailable": "The anomaly model is not yet available. Analyze more traffic first.",
     "generic": "Something went wrong while processing this request.",
 }

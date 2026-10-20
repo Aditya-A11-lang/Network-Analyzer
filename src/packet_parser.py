@@ -109,12 +109,23 @@ def packets_to_dataframe(packets: Iterable) -> pd.DataFrame:
     """Convert an iterable of Scapy packets (from a live capture or a
     read PCAP) into a metadata-only DataFrame."""
     rows = [r for r in (packet_to_row(p) for p in packets) if r is not None]
-    if not rows:
+    return metadata_rows_to_dataframe(rows)
+
+
+def metadata_rows_to_dataframe(rows: Iterable[dict]) -> pd.DataFrame:
+    """Build a normalized analysis frame from already-extracted metadata."""
+    normalized_rows = [
+        {column: row.get(column) for column in COLUMNS}
+        for row in rows
+        if isinstance(row, dict) and row.get("src_ip") and row.get("dst_ip")
+    ]
+    if not normalized_rows:
         raise EmptyCaptureError("No IP packets with extractable metadata were found.")
-    df = pd.DataFrame(rows, columns=COLUMNS)
-    # normalize timestamps to start at 0 for consistent rate calculations
-    if not df.empty:
-        df["timestamp"] = df["timestamp"] - df["timestamp"].min()
+    df = pd.DataFrame(normalized_rows, columns=COLUMNS)
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce").fillna(0.0)
+    df["length"] = pd.to_numeric(df["length"], errors="coerce").fillna(0).astype(int)
+    df["is_dns"] = df["is_dns"].fillna(False).astype(bool)
+    df["timestamp"] = df["timestamp"] - df["timestamp"].min()
     return df
 
 

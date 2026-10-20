@@ -1,341 +1,86 @@
 # Network Analyzer with AI
 
-### AI-Based Network Communication Fingerprinting and Anomaly Detection
+A local Streamlit dashboard for analyzing authorized network traffic. It extracts packet metadata (not payload contents), builds device behavior fingerprints, compares traffic with a baseline, and summarizes statistical outliers.
 
-A beginner-friendly, privacy-preserving cybersecurity education tool that
-learns the normal communication behavior of network devices, builds a
-behavioral **communication fingerprint**, detects significant deviations
-using a lightweight AI model, and explains what changed — without ever
-claiming an anomaly automatically proves an attack.
+## Quick start on Windows
 
----
+1. Install Python 3.10 or newer. During setup, enable **Add Python to PATH**.
+2. Open the project folder in File Explorer: `C:\Users\Jagdish\Network-Analyzer`.
+3. Double-click **`START_APP.bat`**. The first run creates a private Python environment and installs the required packages; allow a few minutes for this step.
+4. Leave the black terminal window open. Open the local URL printed there, usually `http://localhost:8501`.
+5. On first launch, create your administrator username and password in the setup form.
+6. On later launches, enter that username and password on the sign-in screen.
 
-## 1. Project Overview
+There is **no OIDC, provider registration, secrets file, or external account required**. The app creates no default account or shared password. The first account created on a new local database becomes the administrator. From **User Management**, the administrator can add user/admin accounts, disable accounts, and reset passwords.
 
-Network Analyzer with AI observes **authorized** network traffic (either a
-local live capture or an uploaded PCAP file), extracts metadata-level
-behavioral features per device, and applies an unsupervised machine
-learning model (Isolation Forest) to flag traffic that statistically
-deviates from what a device normally does. Results are shown through a
-Streamlit dashboard with plain-language, explainable output.
+Use a password with at least 12 characters. Passwords are salted and hashed before they are saved in the local SQLite database; they are never stored as readable text. Keep your database file private. If you forget the only administrator password, there is no online recovery service; preserve a backup of the database.
 
-## 2. Problem Statement
+The app listens on this computer only (`127.0.0.1`). It is designed for personal/local use; do not expose the local login app to the public internet or a shared network.
 
-Most consumer and small-network users have no easy way to understand
-"what does normal traffic from this device even look like?" — and
-therefore no way to notice when something changes. Enterprise network
-detection tools are complex, expensive, and payload-inspecting. There is
-a gap for a simple, explainable, privacy-respecting educational tool that
-works from metadata alone.
+To stop the app, focus the terminal window and press **Ctrl+C**. Double-click `START_APP.bat` again when you want to run it later.
 
-## 3. Proposed Solution
+## Manual setup
 
-Build each device a behavioral fingerprint from traffic *metadata*
-(packet rate, byte rate, destination/port diversity, protocol mix, DNS
-activity, etc.), learn a baseline of "normal" for that traffic sample,
-and use an Isolation Forest to score how much current behavior deviates
-from that baseline — then explain the result in plain language with a
-project-defined risk score and severity.
+If you prefer using PowerShell, open a terminal in the project folder and run:
 
-## 4. Objectives
-
-- Analyze authorized network traffic without capturing payload contents.
-- Represent device behavior as a visual, understandable fingerprint.
-- Detect behavioral anomalies using lightweight, local, unsupervised ML.
-- Quantify and explain *what changed* versus an established baseline.
-- Communicate results without overstating certainty ("anomalous" ≠
-  "malicious").
-- Work both locally (with live capture) and in the cloud (PCAP upload).
-
-## 5. Key Features
-
-1. **Network Traffic Analyzer** — local live packet capture (Scapy).
-2. **PCAP Analyzer** — upload and analyze `.pcap` / `.pcapng` files.
-3. **Communication Fingerprint** — per-device behavioral profile + short ID.
-4. **AI Anomaly Detection** — Isolation Forest over numerical features.
-5. **What Changed?** — baseline vs. current comparison with deltas.
-6. **Explainable AI Traffic Review** — plain-language interpretation.
-7. Supporting dashboard statistics and persistent analysis history.
-
-## 6. Unique Contribution
-
-The **Communication Fingerprint** concept: a compact, visual, per-device
-behavioral signature built purely from traffic metadata, paired with a
-project-level (not globally unique) short identifier, that is then used
-both for human interpretation and as direct model input for anomaly
-detection and baseline comparison — unifying visualization and detection
-around the same feature vector.
-
-## 7. System Architecture
-
-```
-Streamlit UI (app.py)
-   ├── src/capture.py            local live capture (Scapy)
-   ├── src/packet_parser.py      PCAP/live packets -> metadata DataFrame
-   ├── src/feature_engineering.py per-device numeric feature vectors
-   ├── src/fingerprint.py        behavioral fingerprint + short ID
-   ├── src/baseline.py           baseline storage + "What Changed?"
-   ├── src/anomaly_model.py      Isolation Forest train/load/predict
-   ├── src/risk_scoring.py       0-100 risk score + severity
-   ├── src/ai_review.py          explainable text review
-   ├── src/traffic_analysis.py   aggregate stats + Plotly charts
-   ├── src/database.py           SQLite persistence
-   └── src/utils.py              shared helpers, safe error handling
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-See `PROJECT_SPEC.md` for the full data flow and module-by-module detail.
+If `py` is not recognized, install Python from [python.org](https://www.python.org/downloads/) and reopen the terminal. You do not need to activate the environment.
 
-## 8. Technology Stack
+## Analyze traffic
 
-- **UI:** Streamlit
-- **Packet capture/parsing:** Scapy
-- **Data handling:** pandas, numpy
-- **Machine learning:** scikit-learn (Isolation Forest), joblib
-- **Visualization:** Plotly
-- **Storage:** SQLite (standard library `sqlite3`)
+- **PCAP file:** open **PCAP Analyzer**, select a `.pcap` or `.pcapng` file, and choose **Analyze PCAP File**.
+- **Live traffic:** install [Npcap](https://npcap.com/#download), run the app on the computer whose network you are authorized to monitor, and choose **Start live analysis** on the dashboard to open the interface and duration selector. The **Live Analyzer** page also has interface and start/stop controls. When a capture stops (including its automatic timeout), choose **Analyze captured traffic** to analyze the collected packets. Capture errors are shown on that page. If Windows denies capture access, close the terminal, start VS Code or the terminal with the required permissions, and run the app again.
 
-No external AI APIs, no API keys, no deep learning, no Docker, no
-microservices — a single Streamlit application.
+Live capture can only see the network interface of the machine running the app. It cannot capture a visitor's computer from a hosted website. Uploaded PCAP analysis does not require Npcap.
 
-## 9. AI Methodology
+## Dashboard features
 
-An unsupervised **Isolation Forest** is trained on a table of per-device
-numerical features (packet rate, byte rate, protocol ratios, destination
-and port diversity, connection count, etc.). Isolation Forest isolates
-observations via random recursive partitioning; points that are isolated
-in fewer splits are scored as more anomalous. This requires **no labelled
-attack data** — it only needs a representative sample of traffic to learn
-what "typical" looks like. The model and its feature scaler are persisted
-with `joblib` so a baseline model can be reused across sessions.
+- Network overview with saved scan metrics, recent activity, and protocol/risk charts.
+- Analysis summaries are stored in the local SQLite history and remain available when switching dashboard features or signing out.
+- Grouped navigation for traffic analysis, AI insights, baselines, history, help, and administration.
+- Dark appearance by default, with light and system-default choices saved per local account.
+- Local Scapy capture and PCAP/PCAPNG parsing.
+- Per-device communication fingerprints and traffic statistics.
+- Isolation Forest anomaly scoring and plain-language review.
+- Baseline comparison.
+- Floating, page-aware help popover and full help page; guidance stays local with no external AI service or API key.
+- Local username/password sign-in with user/admin roles and an admin account-management page.
 
-## 10. Communication Fingerprint Explanation
+The first administrator account is created during first-run setup. Additional accounts are created by an administrator from the Administration section; public self-registration is intentionally not enabled for this local security tool. Creating accounts, changing roles or account status, and resetting passwords require the current administrator password again.
 
-For each source device, key features are min-max normalized across the
-devices seen in the session and rendered as percentage bars (e.g. TCP
-usage, DNS activity, destination diversity, port diversity, packet rate).
-A short identifier such as `7A-F2-91` is derived from a hash of the
-device's rounded feature vector — this is explicitly a **project/session
-behavioral label**, not a claim of unique global device identity.
+## Privacy and interpretation
 
-## 11. What Changed Explanation
+The capture worker extracts timestamp, IP addresses, ports, protocol, packet length, and a DNS indicator, then discards each packet. Packet payloads, passwords, and cookies are not saved or displayed. The database and trained model are local files (`data/network_analyzer.db` and `models/`); protect them because traffic metadata can still be sensitive.
 
-The app maintains a stored baseline snapshot (aggregated traffic
-features). Each new analysis is compared against it, metric by metric:
-`baseline`, `current`, `absolute change`, `percentage change`. A metric is
-flagged **significant** when its absolute percentage change is 50% or
-more. The page never labels a change an "attack" — it reports "significant
-behavioral deviation detected" and leaves interpretation to the reviewer.
+Use the tool only on networks you own or are explicitly authorized to monitor. An anomaly means behavior differs statistically from the sample or baseline; it does not prove malicious activity. Risk scores and severity labels are project-defined, not industry standards. Small samples can limit model results.
 
-## 12. Risk Scoring Explanation
+## Run tests
 
-`calculate_risk_score()` combines (weighted):
-- Anomaly score from the Isolation Forest — 40%
-- Packet/byte rate deviation from baseline — 25%
-- Destination/port diversity deviation — 20%
-- Protocol-mix deviation (TCP/UDP/DNS) — 15%
-
-The result is clamped to **0–100** and mapped to a severity band:
-`0–24 INFO · 25–49 LOW · 50–74 MEDIUM · 75–100 HIGH`.
-These thresholds are **project-defined analytical conventions**, not
-industry-standard cybersecurity thresholds. A related **Network Health**
-score (0–100) is shown on the Overview page as a project-level summary
-metric, not an industry rating.
-
-## 13. Explainable AI Explanation
-
-The **AI Traffic Review** combines the classification (Normal/Anomalous),
-anomaly score, risk score, severity, and any significant baseline
-deviations into a short, plain-language report: what was observed, what
-it might mean, and what to check next — always paired with a disclaimer
-that an anomalous classification is a statistical deviation, not
-confirmed malicious activity.
-
-## 14. Privacy Approach
-
-- No packet payloads are captured or stored by default.
-- No passwords, authentication tokens, or cookies are inspected.
-- No application-layer message content is parsed.
-- Only IP addresses, ports, protocols, packet sizes, and timestamps are
-  used and stored.
-- A privacy notice is shown in the app sidebar at all times.
-
-## 15. Project Structure
-
-```
-Network-Packet-Analyzer/
-├── app.py
-├── requirements.txt
-├── README.md
-├── PROJECT_SPEC.md
-├── .gitignore
-├── .streamlit/
-│   └── config.toml
-├── src/
-│   ├── __init__.py
-│   ├── capture.py
-│   ├── packet_parser.py
-│   ├── feature_engineering.py
-│   ├── fingerprint.py
-│   ├── anomaly_model.py
-│   ├── risk_scoring.py
-│   ├── ai_review.py
-│   ├── baseline.py
-│   ├── traffic_analysis.py
-│   ├── database.py
-│   └── utils.py
-├── models/         # trained model artifacts (.gitignored, .gitkeep kept)
-├── data/           # SQLite DB (.gitignored, .gitkeep kept)
-└── tests/
-    ├── test_parser.py
-    ├── test_features.py
-    ├── test_fingerprint.py
-    └── test_risk.py
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests -v
 ```
 
-## 16. Installation Instructions
+## Project layout
 
-```bash
-git clone <this-repository-url>
-cd Network-Packet-Analyzer
-python -m venv .venv
-# activate the environment (see OS-specific steps below)
-pip install -r requirements.txt
+```text
+app.py                    Streamlit dashboard
+START_APP.bat             Windows setup and launch helper
+src/capture.py            Local packet capture
+src/packet_parser.py      PCAP parsing and metadata extraction
+src/feature_engineering.py Per-device feature calculation
+src/fingerprint.py        Behavioral fingerprints
+src/anomaly_model.py      Isolation Forest analysis
+src/baseline.py           Baseline comparison
+src/risk_scoring.py       Project-defined risk scoring
+src/ai_review.py          Explainable review text
+src/traffic_analysis.py   Statistics and charts
+src/database.py           SQLite storage
+src/iam.py                Local accounts and role management
+src/help_assistant.py     Built-in local help
+tests/                    Automated tests
 ```
-
-## 17. Windows Instructions
-
-1. Install Python 3.10+ from python.org.
-2. For **live capture only**, install
-   [Npcap](https://npcap.com/#download) (Npcap is a system driver, not a
-   Python package — it is not listed in `requirements.txt`). During
-   installation, enable "Support raw 802.11 traffic" only if needed; the
-   default options are sufficient for this project.
-3. Create and activate a virtual environment:
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-4. Run the app (see Section 19). Live capture on Windows typically
-   requires running your terminal **as Administrator**.
-
-## 18. Linux Instructions
-
-1. Install Python 3.10+ and `libpcap`:
-   ```bash
-   sudo apt-get update && sudo apt-get install -y python3-venv libpcap-dev
-   ```
-2. Create and activate a virtual environment:
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
-3. Live capture requires elevated permissions:
-   ```bash
-   sudo -E env PATH="$PATH" streamlit run app.py
-   ```
-   or grant the capture capability directly to your Python interpreter
-   with `setcap cap_net_raw,cap_net_admin=eip $(readlink -f $(which python3))`.
-
-## 19. Local Execution Instructions
-
-```bash
-streamlit run app.py
-```
-
-Then open the printed local URL (typically `http://localhost:8501`) in
-your browser. Use the sidebar to navigate between pages.
-
-## 20. PCAP Analysis Instructions
-
-1. Open the **PCAP Analyzer** page.
-2. Upload a `.pcap` or `.pcapng` file (max size set in
-   `.streamlit/config.toml`, default 200 MB).
-3. Click **Analyze PCAP**. The app parses metadata, builds features and
-   fingerprints, runs anomaly detection, compares against the stored
-   baseline, and displays the AI Traffic Review.
-4. Visit **Communication Fingerprint**, **AI Analysis**, **What
-   Changed?**, and **Traffic Statistics** to see the full results.
-
-## 21. Streamlit Cloud Deployment Instructions
-
-1. Push this repository to GitHub (already an existing repo:
-   `Network-Packet-Analyzer`).
-2. In [Streamlit Community Cloud](https://share.streamlit.io), create a
-   new app pointing at this repository, branch, and entry point `app.py`.
-3. Cloud deployment supports the full **PCAP Analyzer** workflow,
-   fingerprinting, AI analysis, What Changed?, statistics, and history.
-4. The **Live Analyzer** page automatically detects the cloud environment
-   and displays an explanatory notice instead of attempting to capture
-   traffic (see Section 22).
-
-## 22. Live Capture Limitations
-
-A cloud-hosted Streamlit application has no access to a website visitor's
-local network interface — it can only see traffic that reaches the cloud
-server itself, which is not the traffic a person wants to monitor on
-their own network. Therefore:
-
-- **Local execution**: both Live Analyzer and PCAP Analyzer are available.
-- **Cloud deployment**: only PCAP Analyzer is available; Live Analyzer
-  displays: *"Live capture requires running the application locally on
-  an authorized machine. Cloud deployments support PCAP upload and
-  analysis."*
-
-This project does **not** simulate or fake live capture in the cloud.
-
-## 23. Testing
-
-Run the automated test suite (packet parsing, feature extraction,
-fingerprint generation, risk scoring):
-
-```bash
-pip install pytest
-pytest tests/ -v
-```
-
-The app is also designed to handle, without crashing: empty PCAPs,
-invalid PCAPs, very small captures, missing ports/protocols/IPs,
-insufficient data for ML, model training failures, capture permission
-errors, and unsupported interfaces — each surfaced as a plain-language
-message rather than a raw traceback.
-
-## 24. Limitations
-
-- Isolation Forest identifies **statistical outliers**, not confirmed
-  attacks; results require human review.
-- Small or short captures (few devices/packets) produce low-confidence
-  baselines and anomaly scores — the UI communicates this via
-  "insufficient data" messages rather than guessing.
-- DNS activity is detected heuristically (DNS layer presence or port 53
-  traffic), not via full DNS message parsing.
-- Fingerprint identifiers are project/session-level behavioral labels,
-  not cryptographically unique or globally persistent device identities.
-- Live capture requires local execution and OS-level permissions (and
-  Npcap on Windows); it cannot run in a cloud deployment.
-
-## 25. Future Enhancements
-
-- Optional persistent, cross-session baselines per specific device (by
-  MAC or user-assigned label) rather than per analysis run.
-- Configurable contamination/sensitivity controls in the UI.
-- Exportable PDF/CSV summaries of an AI Traffic Review.
-- Optional scheduled PCAP ingestion for periodic local monitoring.
-
-## 26. Ethical / Legal Usage
-
-This project is strictly for **authorized** network monitoring and
-educational analysis. Only capture or analyze traffic on networks and
-devices you own or are explicitly authorized to monitor. This project
-does **not** implement, and must not be extended to implement, offensive
-capabilities such as port scanning, vulnerability exploitation, packet
-injection, credential harvesting, password interception, malware,
-persistence, evasion, or attack automation. An "anomalous" classification
-describes a statistical behavioral deviation — it does not, by itself,
-prove malicious activity, and should always be paired with human
-judgment and further investigation before any action is taken.
-
-## 27. Author
-
-Built as an educational cybersecurity + applied machine learning project.

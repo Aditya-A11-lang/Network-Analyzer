@@ -17,6 +17,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS analysis_history (
     analysis_id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL,
+    actor TEXT,
     source TEXT NOT NULL,               -- 'live' or 'pcap'
     duration REAL,
     packet_count INTEGER,
@@ -45,6 +46,34 @@ CREATE TABLE IF NOT EXISTS baselines (
     features_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS local_accounts (
+    username TEXT PRIMARY KEY COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    full_name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL CHECK (role IN ('user', 'admin')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    last_login TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS iam_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    actor_subject TEXT,
+    target_subject TEXT,
+    action TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS user_preferences (
+    username TEXT NOT NULL COLLATE NOCASE,
+    preference_key TEXT NOT NULL,
+    preference_value TEXT NOT NULL,
+    PRIMARY KEY (username, preference_key),
+    FOREIGN KEY (username) REFERENCES local_accounts (username)
+);
 """
 
 
@@ -63,6 +92,12 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA)
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(analysis_history)").fetchall()
+        }
+        if "actor" not in columns:
+            conn.execute("ALTER TABLE analysis_history ADD COLUMN actor TEXT")
 
 
 def save_analysis(
@@ -75,17 +110,19 @@ def save_analysis(
     risk_score: float,
     severity: str,
     classification: str,
+    actor: Optional[str] = None,
 ) -> int:
     init_db()
     anomaly_rate = (anomaly_count / device_count) if device_count else 0.0
     with get_connection() as conn:
         cur = conn.execute(
             """INSERT INTO analysis_history
-               (timestamp, source, duration, packet_count, total_bytes, device_count,
+               (timestamp, actor, source, duration, packet_count, total_bytes, device_count,
                 anomaly_count, anomaly_rate, risk_score, severity, classification)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 datetime.now(timezone.utc).isoformat(),
+                actor,
                 source,
                 duration,
                 packet_count,
@@ -159,3 +196,35 @@ def get_overview_metrics() -> dict:
                FROM analysis_history"""
         ).fetchone()
         return dict(row) if row else {}
+
+
+def get_user_theme(username: str) -> str:
+    """Return the saved UI theme for a local account, defaulting to Dark."""
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT preference_value FROM user_preferences
+               WHERE username = ? AND preference_key = 'theme'""",
+            (username.strip().casefold(),),
+        ).fetchone()
+        return row["preference_value"] if row else "Dark"
+
+
+def set_user_theme(username: str, theme: str) -> None:
+    """Persist a validated theme preference for an existing local account."""
+    if theme not in {"Light", "Dark", "System Default"}:
+        raise ValueError("Theme must be Light, Dark, or System Default.")
+    normalized_username = username.strip().casefold()
+    with get_connection() as conn:
+        account = conn.execute(
+            "SELECT 1 FROM local_accounts WHERE username = ?",
+            (normalized_username,),
+        ).fetchone()
+        if account is None:
+            raise ValueError("Theme preference requires an existing local account.")
+        conn.execute(
+            """INSERT INTO user_preferences (username, preference_key, preference_value)
+               VALUES (?, 'theme', ?)
+               ON CONFLICT(username, preference_key)
+               DO UPDATE SET preference_value = excluded.preference_value""",
+            (normalized_username, theme),
+        )

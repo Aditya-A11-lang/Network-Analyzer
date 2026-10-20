@@ -17,11 +17,12 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Optional
 
 from .utils import get_logger
 
 logger = get_logger(__name__)
+MAX_CAPTURE_PACKETS = 50_000
 
 
 class CapturePermissionError(Exception):
@@ -43,7 +44,7 @@ def is_cloud_environment() -> bool:
     )
 
 
-def list_interfaces() -> List[str]:
+def list_interfaces() -> list[str]:
     """Return available network interface names/descriptions for the
     interface selector. Never assumes a fixed interface name."""
     try:
@@ -58,52 +59,60 @@ def list_interfaces() -> List[str]:
 
 @dataclass
 class CaptureState:
-    """Thread-safe-ish shared state for an in-progress live capture.
+    """Shared state for an in-progress metadata-only live capture.
     Streamlit reruns the script on every interaction, so this object is
     kept in st.session_state by the caller (app.py) rather than here.
     """
     running: bool = False
     start_time: Optional[float] = None
+    stop_time: Optional[float] = None
+    max_duration: int = 60
     packet_count: int = 0
     total_bytes: int = 0
     error: Optional[str] = None
-    packets: list = field(default_factory=list)
+    records: list[dict] = field(default_factory=list)
     _stop_event: Optional[threading.Event] = None
     _thread: Optional[threading.Thread] = None
 
     def elapsed(self) -> float:
         if not self.start_time:
             return 0.0
-        return time.time() - self.start_time
+        end_time = self.stop_time if self.stop_time is not None else time.time()
+        return end_time - self.start_time
 
 
 def _capture_worker(state: CaptureState, interface: Optional[str], stop_event: threading.Event) -> None:
     try:
         from scapy.all import sniff
+        from .packet_parser import packet_to_row
 
         def _on_packet(pkt):
             if stop_event.is_set():
                 return
-            state.packets.append(pkt)
+            if state.packet_count >= MAX_CAPTURE_PACKETS:
+                state.error = "packet_limit"
+                stop_event.set()
+                return
+            row = packet_to_row(pkt)
+            if row is None:
+                return
+            state.records.append(row)
             state.packet_count += 1
-            state.total_bytes += int(len(pkt))
+            state.total_bytes += row["length"]
+            if state.packet_count >= MAX_CAPTURE_PACKETS:
+                state.error = "packet_limit"
+                stop_event.set()
 
-        sniff(
-            iface=interface if interface else None,
-            prn=_on_packet,
-            store=False,
-            stop_filter=lambda _pkt: stop_event.is_set(),
-            timeout=1,  # re-checked in a loop below so stop is responsive
-        )
-        # sniff() with a short timeout returns; loop until stopped so the
-        # UI's STOP button takes effect promptly rather than blocking.
         while not stop_event.is_set():
+            remaining = state.max_duration - state.elapsed()
+            if remaining <= 0:
+                stop_event.set()
+                break
             sniff(
                 iface=interface if interface else None,
                 prn=_on_packet,
                 store=False,
-                stop_filter=lambda _pkt: stop_event.is_set(),
-                timeout=1,
+                timeout=min(1.0, remaining),
             )
     except PermissionError as exc:
         state.error = "capture_permission"
@@ -116,9 +125,14 @@ def _capture_worker(state: CaptureState, interface: Optional[str], stop_event: t
         logger.exception("Unexpected capture error: %s", exc)
     finally:
         state.running = False
+        state.stop_time = time.time()
 
 
-def start_capture(state: CaptureState, interface: Optional[str] = None) -> CaptureState:
+def start_capture(
+    state: CaptureState,
+    interface: Optional[str] = None,
+    max_duration: int = 60,
+) -> CaptureState:
     """Start a background live capture thread. Only usable when running
     locally (see is_cloud_environment()). Captures only on machines the
     operator is authorized to monitor."""
@@ -130,13 +144,17 @@ def start_capture(state: CaptureState, interface: Optional[str] = None) -> Captu
 
     if state.running:
         return state
+    if not 1 <= max_duration <= 3600:
+        raise ValueError("Capture duration must be between 1 and 3600 seconds.")
 
     state.running = True
     state.start_time = time.time()
+    state.stop_time = None
+    state.max_duration = max_duration
     state.packet_count = 0
     state.total_bytes = 0
     state.error = None
-    state.packets = []
+    state.records = []
     state._stop_event = threading.Event()
     state._thread = threading.Thread(
         target=_capture_worker, args=(state, interface, state._stop_event), daemon=True
@@ -152,4 +170,6 @@ def stop_capture(state: CaptureState) -> CaptureState:
     if state._thread is not None:
         state._thread.join(timeout=3)
     state.running = False
+    if state.start_time is not None and state.stop_time is None:
+        state.stop_time = time.time()
     return state
