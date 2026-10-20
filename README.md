@@ -5,7 +5,7 @@ A local Streamlit dashboard for analyzing authorized network traffic. It extract
 ## Quick start on Windows
 
 1. Install Python 3.10 or newer. During setup, enable **Add Python to PATH**.
-2. Open the project folder in File Explorer: `C:\Users\Jagdish\Network-Analyzer`.
+2. Open the project folder in File Explorer: `Your Folder Path `.
 3. Double-click **`START_APP.bat`**. The first run creates a private Python environment and installs the required packages; allow a few minutes for this step.
 4. Leave the black terminal window open. Open the local URL printed there, usually `http://localhost:8501`.
 5. On first launch, create your administrator username and password in the setup form.
